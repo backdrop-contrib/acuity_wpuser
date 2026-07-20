@@ -1,0 +1,124 @@
+<?php
+/**
+ * @file
+ * Install, update and uninstall functions for the Acuity WP User module.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function acuity_wpuser_install() {
+  // List of fields to create
+  $fields = array(
+    // 1. WP GUID (Integer)
+    'field_wp_guid' => array(
+      'type' => 'number_integer',
+      'widget' => 'number',
+      'label' => 'WordPress GUID',
+      'desc' => 'Legacy ID from WordPress.',
+      'display' => 'hidden',
+    ),
+    // 2. Display Name (Text)
+    'field_display_name' => array(
+      'type' => 'text',
+      'widget' => 'text_textfield',
+      'label' => 'Display Name',
+      'desc' => 'Public display name from WordPress.',
+      'display' => 'text_default',
+    ),
+    // 3. First Name (Text)
+    'field_first_name' => array(
+      'type' => 'text',
+      'widget' => 'text_textfield',
+      'label' => 'First Name',
+      'desc' => 'Imported First Name.',
+      'display' => 'text_default',
+    ),
+    // 4. Last Name (Text)
+    'field_last_name' => array(
+      'type' => 'text',
+      'widget' => 'text_textfield',
+      'label' => 'Last Name',
+      'desc' => 'Imported Last Name.',
+      'display' => 'text_default',
+    ),
+    // 5. Bio/Description (Long Text)
+    'field_wp_bio' => array(
+      'type' => 'text_long',
+      'widget' => 'text_textarea',
+      'label' => 'Bio',
+      'desc' => 'Biographical Info from WordPress.',
+      'display' => 'text_default',
+    ),
+    // 6. WP Capabilities (Long Text - Raw Storage)
+    'field_wp_capabilities' => array(
+      'type' => 'text_long',
+      'widget' => 'text_textarea',
+      'label' => 'WP Capabilities (Raw)',
+      'desc' => 'Serialized array of WordPress roles and capabilities.',
+      'display' => 'hidden', // Hide from profile by default
+    ),
+    // 7. WP User Level (Integer)
+    'field_wp_user_level' => array(
+      'type' => 'number_integer',
+      'widget' => 'number',
+      'label' => 'WP User Level',
+      'desc' => 'Legacy WordPress User Level.',
+      'display' => 'hidden',
+    ),
+  );
+
+  foreach ($fields as $field_name => $info) {
+    // Create Field Base
+    if (!field_info_field($field_name)) {
+      $field_config = array(
+        'field_name' => $field_name,
+        'type' => $info['type'],
+        'cardinality' => 1,
+        'settings' => array(),
+      );
+      // Add length limit for simple text fields
+      if ($info['type'] == 'text') {
+        $field_config['settings']['max_length'] = 255;
+      }
+      field_create_field($field_config);
+    }
+
+    // Create Instance on User entity
+    if (!field_info_instance('user', $field_name, 'user')) {
+      $instance = array(
+        'field_name' => $field_name,
+        'entity_type' => 'user',
+        'bundle' => 'user',
+        'label' => $info['label'],
+        'description' => $info['desc'],
+        'required' => FALSE,
+        'widget' => array(
+          'type' => $info['widget'],
+          'weight' => 10,
+        ),
+        'display' => array(
+          'default' => array('label' => 'inline', 'type' => $info['display']),
+        ),
+      );
+
+      // Hide specific fields from display
+      if ($info['display'] == 'hidden') {
+        $instance['display']['default'] = array('label' => 'hidden', 'type' => 'hidden');
+      }
+
+      field_create_instance($instance);
+    }
+  }
+
+  backdrop_set_message(t('Acuity WP User: Migration fields created on User entity.'));
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function acuity_wpuser_uninstall() {
+  // Delete configuration
+  config('acuity_wpuser.settings')->delete();
+  // Note: We do NOT delete the fields to preserve imported data.
+}

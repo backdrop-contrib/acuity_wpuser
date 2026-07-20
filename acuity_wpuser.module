@@ -1,0 +1,353 @@
+<?php
+/**
+ * @file
+ * Manages the migration of users from WordPress to Backdrop CMS.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function acuity_wpuser_menu() {
+  $items = array();
+
+  // 1. User Migration Landing Page
+  // This is the "Group Home" referenced by the WPMC dashboard.
+  // We hide it from the main menu tree (MENU_CALLBACK) so it's only accessed via the Dashboard.
+  $items['admin/config/acuity/wpmc/users'] = array(
+    'title' => 'User Migration',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('acuity_wpuser_import_form'), // Default to Import form
+    'access arguments' => array('administer users'),
+    'type' => MENU_CALLBACK,
+  );
+
+  // 2. Tab: Import (Default)
+  $items['admin/config/acuity/wpmc/users/import'] = array(
+    'title' => 'User Import',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+  );
+
+  // 3. Tab: Settings
+  $items['admin/config/acuity/wpmc/users/settings'] = array(
+    'title' => 'Settings',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('acuity_wpuser_settings_form'),
+    'access arguments' => array('administer users'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 10,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_acuity_wpmc_group_info().
+ * Registers this module on the main Migration Centre Dashboard.
+ */
+function acuity_wpuser_acuity_wpmc_group_info() {
+  return array(
+    'wpuser' => array(
+      'title' => t('User Migration & Auth'),
+      'description' => t('Import users, map profiles, and manage password hashing strategies.'),
+      'url' => 'admin/config/acuity/wpmc/users',
+    ),
+  );
+}
+
+/**
+ * Implements hook_config_info().
+ */
+function acuity_wpuser_config_info() {
+  $prefixes['acuity_wpuser.settings'] = array(
+    'label' => t('Acuity WP User Settings'),
+    'group' => t('Acuity'),
+  );
+  return $prefixes;
+}
+
+/**
+ * Form: User Import Execution.
+ */
+function acuity_wpuser_import_form($form, &$form_state) {
+  $config = config('acuity_wpuser.settings');
+  $batch_size = $config->get('batch_size') ? $config->get('batch_size') : 50;
+
+  $form['intro'] = array(
+    '#markup' => '<p>' . t('Run the batch import to pull users from WordPress. This process is idempotent (can be run multiple times).') . '</p>',
+  );
+
+  $form['status'] = array(
+    '#type' => 'item',
+    '#title' => t('Current Configuration'),
+    '#markup' => t('Batch Size: @size users per step.', array('@size' => $batch_size)),
+  );
+
+  $form['actions']['#type'] = 'actions';
+  $form['actions']['run'] = array(
+    '#type' => 'submit',
+    '#value' => t('Run User Migration'),
+    '#attributes' => array('class' => array('button-primary')),
+  );
+
+  return $form;
+}
+
+/**
+ * Submit handler for User Import form.
+ */
+function acuity_wpuser_import_form_submit($form, &$form_state) {
+  // Verify connection API exists
+  if (!function_exists('acuity_wpmc_get_database')) {
+    backdrop_set_message(t('Error: Acuity Migration Centre module is missing.'), 'error');
+    return;
+  }
+
+  // Get connection
+  $connection = acuity_wpmc_get_database();
+  if (!$connection) return;
+
+  // Get total count of users to process
+  try {
+    $total = $connection->select('wp_users', 'u')->countQuery()->execute()->fetchField();
+  } catch (Exception $e) {
+    backdrop_set_message(t('Query error: @e', array('@e' => $e->getMessage())), 'error');
+    return;
+  }
+
+  $config = config('acuity_wpuser.settings');
+  $batch_size = $config->get('batch_size') ? $config->get('batch_size') : 50;
+
+  $batch = array(
+    'title' => t('Migrating WordPress Users'),
+    'operations' => array(
+      array('acuity_wpuser_batch_process', array($total, $batch_size)),
+    ),
+    'finished' => 'acuity_wpuser_batch_finished',
+    'file' => backdrop_get_path('module', 'acuity_wpuser') . '/acuity_wpuser.module',
+  );
+
+  batch_set($batch);
+}
+
+/**
+ * Form: Settings (Batch Size only).
+ */
+function acuity_wpuser_settings_form($form, &$form_state) {
+  $config = config('acuity_wpuser.settings');
+  $form['#config'] = 'acuity_wpuser.settings';
+
+  $form['batch_size'] = array(
+    '#type' => 'number',
+    '#title' => t('Batch Size'),
+    '#description' => t('Number of users to process per batch step.'),
+    '#default_value' => $config->get('batch_size') ? $config->get('batch_size') : 50,
+    '#required' => TRUE,
+  );
+
+  return system_settings_form($form);
+}
+
+/**
+ * Batch Operation: Process users.
+ */
+function acuity_wpuser_batch_process($total, $limit, &$context) {
+  if (empty($context['sandbox'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = $total;
+    $context['sandbox']['last_id'] = 0;
+  }
+
+  // Get connection from WPMC API
+  if (!function_exists('acuity_wpmc_get_database')) {
+    $context['results']['errors'][] = "WPMC module missing.";
+    $context['finished'] = 1;
+    return;
+  }
+
+  $connection = acuity_wpmc_get_database();
+  if (!$connection) {
+    $context['results']['errors'][] = "Database connection lost.";
+    $context['finished'] = 1;
+    return;
+  }
+
+  try {
+    // 1. Get Main User Data
+    $query = $connection->select('wp_users', 'u');
+    $query->fields('u', array('ID', 'user_login', 'user_pass', 'user_email', 'user_registered', 'display_name', 'user_status'));
+    $query->condition('u.ID', $context['sandbox']['last_id'], '>');
+    $query->orderBy('u.ID', 'ASC');
+    $query->range(0, $limit);
+    $results = $query->execute();
+  }
+  catch (Exception $e) {
+    $context['results']['errors'][] = $e->getMessage();
+    $context['finished'] = 1;
+    return;
+  }
+
+  foreach ($results as $wp_user) {
+    $account = acuity_wpuser_find_existing($wp_user);
+    $is_new_user = FALSE;
+
+    if (!$account) {
+      $account = new User();
+      $account->is_new = TRUE;
+      $account->created = strtotime($wp_user->user_registered);
+      $account->notify = FALSE; // Silence emails
+      $is_new_user = TRUE;
+    }
+
+    // --- Basic Mapping ---
+    $account->name = $wp_user->user_login;
+    $account->mail = $wp_user->user_email;
+    $account->init = $wp_user->user_email;
+    $account->status = ($wp_user->user_status == 0) ? 1 : 0; // WP 0 = Active
+    $account->field_wp_guid[LANGUAGE_NONE][0]['value'] = $wp_user->ID;
+
+    if (!empty($wp_user->display_name)) {
+      $account->field_display_name[LANGUAGE_NONE][0]['value'] = $wp_user->display_name;
+    }
+
+    // --- Meta Data Extraction ---
+    try {
+      $meta_query = $connection->select('wp_usermeta', 'm');
+      $meta_query->fields('m', array('meta_key', 'meta_value'));
+      $meta_query->condition('m.user_id', $wp_user->ID);
+      $meta_query->condition('m.meta_key', array('first_name', 'last_name', 'description', 'wp_capabilities', 'wp_user_level'), 'IN');
+      $meta_results = $meta_query->execute()->fetchAllKeyed();
+
+      if (!empty($meta_results['first_name'])) {
+        $account->field_first_name[LANGUAGE_NONE][0]['value'] = $meta_results['first_name'];
+      }
+      if (!empty($meta_results['last_name'])) {
+        $account->field_last_name[LANGUAGE_NONE][0]['value'] = $meta_results['last_name'];
+      }
+      if (!empty($meta_results['description'])) {
+        $account->field_wp_bio[LANGUAGE_NONE][0]['value'] = $meta_results['description'];
+      }
+      if (!empty($meta_results['wp_capabilities'])) {
+        $account->field_wp_capabilities[LANGUAGE_NONE][0]['value'] = $meta_results['wp_capabilities'];
+        // bbPress "blocked" members must never import as active accounts.
+        // The block is a capability (bbp_blocked) in this serialized array,
+        // NOT in wp_users.user_status (which stays 0/active for them), so
+        // status set from user_status above would wrongly enable them.
+        $caps = @unserialize($meta_results['wp_capabilities']);
+        if (is_array($caps) && !empty($caps['bbp_blocked'])) {
+          $account->status = 0;
+        }
+      }
+      if (isset($meta_results['wp_user_level'])) {
+        $account->field_wp_user_level[LANGUAGE_NONE][0]['value'] = $meta_results['wp_user_level'];
+      }
+    }
+    catch (Exception $e) {
+      // Meta fetch failed, continue
+    }
+
+    // --- Save User ---
+    try {
+      $account->save();
+
+      // SECURITY: Safe Password Injection
+      $should_update_pass = FALSE;
+
+      if ($is_new_user) {
+        $should_update_pass = TRUE;
+      }
+      elseif ($account->uid == 1) {
+        $should_update_pass = FALSE;
+      }
+      elseif (!empty($account->pass)) {
+         // Check if current hash is Backdrop style ($S)
+         $is_backdrop_hash = (substr($account->pass, 0, 3) === '$S$');
+         if (!$is_backdrop_hash) {
+             $should_update_pass = TRUE;
+         }
+      }
+
+      if ($should_update_pass) {
+        db_update('users')
+          ->fields(array('pass' => $wp_user->user_pass))
+          ->condition('uid', $account->uid)
+          ->execute();
+      }
+
+      $context['results']['processed']++;
+    }
+    catch (Exception $e) {
+      $context['results']['errors'][] = "Failed ID {$wp_user->ID}: " . $e->getMessage();
+    }
+
+    $context['sandbox']['progress']++;
+    $context['sandbox']['last_id'] = $wp_user->ID;
+  }
+
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+}
+
+/**
+ * Helper: Find existing user by WP GUID or Email.
+ */
+function acuity_wpuser_find_existing($wp_user) {
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'user')
+    ->fieldCondition('field_wp_guid', 'value', $wp_user->ID);
+  $result = $query->execute();
+
+  if (isset($result['user'])) {
+    $uids = array_keys($result['user']);
+    return user_load(reset($uids));
+  }
+
+  $account = user_load_by_mail($wp_user->user_email);
+  if ($account) {
+    return $account;
+  }
+
+  $account = user_load_by_name($wp_user->user_login);
+  if ($account) {
+    return $account;
+  }
+
+  return FALSE;
+}
+
+/**
+ * Batch Finished Callback.
+ */
+function acuity_wpuser_batch_finished($success, $results, $operations) {
+  if ($success) {
+    $message = format_plural(isset($results['processed']) ? $results['processed'] : 0, 'One user processed.', '@count users processed.');
+    backdrop_set_message($message);
+  }
+  else {
+    backdrop_set_message(t('Finished with an error.'), 'error');
+  }
+
+  if (!empty($results['errors'])) {
+    foreach ($results['errors'] as $error) {
+      backdrop_set_message($error, 'error');
+    }
+  }
+}
+
+/**
+ * Implements hook_field_access().
+ */
+function acuity_wpuser_field_access($op, $field, $entity_type, $entity, $account) {
+  $internal_fields = array(
+    'field_wp_guid',
+    'field_wp_capabilities',
+    'field_wp_user_level',
+  );
+
+  if (in_array($field['field_name'], $internal_fields)) {
+    return user_access('administer users', $account);
+  }
+
+  return TRUE;
+}

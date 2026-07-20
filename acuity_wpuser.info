@@ -1,0 +1,9 @@
+name = Acuity WordPress User Import
+description = Import and sync users from the WordPress database defined in the Migration Centre.
+backdrop = 1.x
+type = module
+package = Acuity WordPress Utilities
+dependencies[] = user
+dependencies[] = field
+dependencies[] = acuity_wpmc
+configure = admin/config/acuity/wpmc/users
