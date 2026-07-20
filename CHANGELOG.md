@@ -6,6 +6,12 @@ this changelog is the running version tally. On release, the top heading's
 
 ## 1.x-1.0.0-alpha1 (unreleased)
 
+### Menu (2026-07-20)
+- Moved to the renamed Migration Centre root: the User Importer is now at
+  `admin/config/acuity-wpmc/users` (was `admin/config/acuity/wpmc/users`), with
+  its Import / Settings tabs and `configure` link updated. Requires the matching
+  acuity_wpmc change.
+
 ### Docs & packaging (2026-07-20)
 - Added README.md, covering import, data mapping, and login after migration:
   migrated users sign in with their existing WordPress password, which Backdrop
@@ -13,7 +19,7 @@ this changelog is the running version tally. On release, the top heading's
   secure `$S$` hash on first login — no companion auth module is required.
 - Added LICENSE.txt (GPL v2) and CLAUDE.md (developer notes).
 - Fixed the `.info` `configure` link, which pointed at a dead path
-  (`admin/config/acuity/wpuser` → `admin/config/acuity/wpmc/users`).
+  (`admin/config/acuity/wpuser` → `admin/config/acuity-wpmc/users`).
 
 ### Fixed (blocked bbPress members, 2026-07-12)
 - Import now respects bbPress "blocked" status. A blocked member carries

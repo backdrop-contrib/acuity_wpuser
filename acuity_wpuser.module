@@ -13,7 +13,7 @@ function acuity_wpuser_menu() {
   // 1. User Migration Landing Page
   // This is the "Group Home" referenced by the WPMC dashboard.
   // We hide it from the main menu tree (MENU_CALLBACK) so it's only accessed via the Dashboard.
-  $items['admin/config/acuity/wpmc/users'] = array(
+  $items['admin/config/acuity-wpmc/users'] = array(
     'title' => 'User Migration',
     'page callback' => 'backdrop_get_form',
     'page arguments' => array('acuity_wpuser_import_form'), // Default to Import form
@@ -22,14 +22,14 @@ function acuity_wpuser_menu() {
   );
 
   // 2. Tab: Import (Default)
-  $items['admin/config/acuity/wpmc/users/import'] = array(
+  $items['admin/config/acuity-wpmc/users/import'] = array(
     'title' => 'User Import',
     'type' => MENU_DEFAULT_LOCAL_TASK,
     'weight' => -10,
   );
 
   // 3. Tab: Settings
-  $items['admin/config/acuity/wpmc/users/settings'] = array(
+  $items['admin/config/acuity-wpmc/users/settings'] = array(
     'title' => 'Settings',
     'page callback' => 'backdrop_get_form',
     'page arguments' => array('acuity_wpuser_settings_form'),
@@ -50,7 +50,7 @@ function acuity_wpuser_acuity_wpmc_group_info() {
     'wpuser' => array(
       'title' => t('User Migration & Auth'),
       'description' => t('Import users, map profiles, and manage password hashing strategies.'),
-      'url' => 'admin/config/acuity/wpmc/users',
+      'url' => 'admin/config/acuity-wpmc/users',
     ),
   );
 }

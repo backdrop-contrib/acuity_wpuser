@@ -6,4 +6,4 @@ package = Acuity WordPress Utilities
 dependencies[] = user
 dependencies[] = field
 dependencies[] = acuity_wpmc
-configure = admin/config/acuity/wpmc/users
+configure = admin/config/acuity-wpmc/users
