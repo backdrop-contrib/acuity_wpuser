@@ -5,5 +5,6 @@ type = module
 package = Acuity WordPress Utilities
 dependencies[] = user
 dependencies[] = field
+dependencies[] = acuity_migration
 dependencies[] = acuity_wpmc
-configure = admin/config/acuity-wpmc/users
+configure = admin/config/acuity-migration/wordpress/users

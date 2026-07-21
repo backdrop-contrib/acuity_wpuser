@@ -45,10 +45,10 @@ Add the WordPress database configuration to your settings.php file (see Document
 
 2. **Running the Migration**
 
-  - Open the Migration Centre dashboard at Configuration → Acuity → WP Migration Centre (`admin/config/acuity-wpmc`).
-  - Choose **User Migration & Auth**.
+  - Open the Acuity Migration Centre dashboard at Configuration → Acuity Migration Centre (`admin/config/acuity-migration`).
+  - Under **WordPress Migrations**, choose **User Migration & Auth**.
   - On the **Settings** tab, confirm the batch size (number of users processed per step).
-  - On the **User Import** tab, click **Run User Migration** to begin the batch import. The process is idempotent and can be re-run safely.
+  - On the **Overview** tab, check the prerequisite checklist, then click **Run User Migration** to begin the batch import. The process is idempotent and can be re-run safely.
 
 3. **Data Mapping**
 

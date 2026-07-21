@@ -6,30 +6,28 @@
 
 /**
  * Implements hook_menu().
+ *
+ * Lives under the Migration Centre's WordPress category path. Canonical tab set:
+ * Overview (default; what it does + prerequisite checklist + Run) → Settings.
+ * The landing is MENU_CALLBACK (hidden from the admin menu tree); it is reached
+ * from the dashboard card, so only the hub shows in the menu.
  */
 function acuity_wpuser_menu() {
   $items = array();
 
-  // 1. User Migration Landing Page
-  // This is the "Group Home" referenced by the WPMC dashboard.
-  // We hide it from the main menu tree (MENU_CALLBACK) so it's only accessed via the Dashboard.
-  $items['admin/config/acuity-wpmc/users'] = array(
+  $items['admin/config/acuity-migration/wordpress/users'] = array(
     'title' => 'User Migration',
     'page callback' => 'backdrop_get_form',
-    'page arguments' => array('acuity_wpuser_import_form'), // Default to Import form
+    'page arguments' => array('acuity_wpuser_overview_form'),
     'access arguments' => array('administer users'),
     'type' => MENU_CALLBACK,
   );
-
-  // 2. Tab: Import (Default)
-  $items['admin/config/acuity-wpmc/users/import'] = array(
-    'title' => 'User Import',
+  $items['admin/config/acuity-migration/wordpress/users/overview'] = array(
+    'title' => 'Overview',
     'type' => MENU_DEFAULT_LOCAL_TASK,
     'weight' => -10,
   );
-
-  // 3. Tab: Settings
-  $items['admin/config/acuity-wpmc/users/settings'] = array(
+  $items['admin/config/acuity-migration/wordpress/users/settings'] = array(
     'title' => 'Settings',
     'page callback' => 'backdrop_get_form',
     'page arguments' => array('acuity_wpuser_settings_form'),
@@ -42,15 +40,17 @@ function acuity_wpuser_menu() {
 }
 
 /**
- * Implements hook_acuity_wpmc_group_info().
- * Registers this module on the main Migration Centre Dashboard.
+ * Implements hook_acuity_migration_group_info().
+ *
+ * Registers this tool in the Migration Centre's "wordpress" category.
  */
-function acuity_wpuser_acuity_wpmc_group_info() {
+function acuity_wpuser_acuity_migration_group_info() {
   return array(
     'wpuser' => array(
       'title' => t('User Migration & Auth'),
       'description' => t('Import users, map profiles, and manage password hashing strategies.'),
-      'url' => 'admin/config/acuity-wpmc/users',
+      'url' => 'admin/config/acuity-migration/wordpress/users',
+      'category' => 'wordpress',
       // Tables the user import reads. Hardcoded wp_ prefix (this module is not
       // prefix-aware; see its CLAUDE.md Gotchas).
       'export_tables' => array('wp_users', 'wp_usermeta'),
@@ -70,15 +70,41 @@ function acuity_wpuser_config_info() {
 }
 
 /**
- * Form: User Import Execution.
+ * Form: User Migration Overview (landing tab).
+ *
+ * The canonical Overview: a prerequisite checklist (is the WordPress connection
+ * set? how many users are already imported?) built with the shared
+ * acuity_migration_checklist() widget, plus the Run button. Idempotent, so Run
+ * is always available.
  */
-function acuity_wpuser_import_form($form, &$form_state) {
+function acuity_wpuser_overview_form($form, &$form_state) {
   $config = config('acuity_wpuser.settings');
   $batch_size = $config->get('batch_size') ? $config->get('batch_size') : 50;
 
   $form['intro'] = array(
-    '#markup' => '<p>' . t('Run the batch import to pull users from WordPress. This process is idempotent (can be run multiple times).') . '</p>',
+    '#markup' => '<p>' . t('Import users from the WordPress source database into Backdrop accounts. The import is idempotent — it can be re-run safely and syncs by the original WordPress user ID.') . '</p>',
   );
+
+  // Prerequisite checklist via the hub's shared widget.
+  $connected = function_exists('acuity_wpmc_get_database') && acuity_wpmc_get_database();
+  $imported = db_table_exists('field_data_field_wp_guid')
+    ? db_query("SELECT COUNT(*) FROM {field_data_field_wp_guid} WHERE entity_type = 'user'")->fetchField()
+    : 0;
+  $steps = array(
+    array(
+      'label' => t('WordPress database connection'),
+      'state' => $connected ? 'done' : 'todo',
+      'link' => array('title' => t('Set up connection'), 'href' => 'admin/config/acuity-migration/wordpress/centre'),
+    ),
+    array(
+      'label' => t('Users imported'),
+      'state' => $imported ? 'done' : 'todo',
+      'description' => format_plural($imported, '1 account so far', '@count accounts so far'),
+    ),
+  );
+  if (function_exists('acuity_migration_checklist')) {
+    $form['checklist'] = acuity_migration_checklist($steps);
+  }
 
   $form['status'] = array(
     '#type' => 'item',
@@ -91,15 +117,16 @@ function acuity_wpuser_import_form($form, &$form_state) {
     '#type' => 'submit',
     '#value' => t('Run User Migration'),
     '#attributes' => array('class' => array('button-primary')),
+    '#disabled' => !$connected,
   );
 
   return $form;
 }
 
 /**
- * Submit handler for User Import form.
+ * Submit handler for the User Migration Overview form.
  */
-function acuity_wpuser_import_form_submit($form, &$form_state) {
+function acuity_wpuser_overview_form_submit($form, &$form_state) {
   // Verify connection API exists
   if (!function_exists('acuity_wpmc_get_database')) {
     backdrop_set_message(t('Error: Acuity Migration Centre module is missing.'), 'error');

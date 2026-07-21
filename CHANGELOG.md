@@ -6,6 +6,18 @@ this changelog is the running version tally. On release, the top heading's
 
 ## 1.x-1.0.0-alpha1 (unreleased)
 
+### Acuity Migration Centre: relocated + Overview tab (2026-07-21)
+- Now a card in the Migration Centre's **WordPress** section. Registration hook
+  renamed `hook_acuity_wpmc_group_info()` → `hook_acuity_migration_group_info()`
+  with a `category` key. Depends on the new **acuity_migration** hub.
+- **Relocated** from `admin/config/acuity-wpmc/users` to
+  `admin/config/acuity-migration/wordpress/users`.
+- **Canonical tabs Overview → Settings.** The old Import tab became the default
+  **Overview**, which now leads with a shared prerequisite checklist (WordPress
+  connection set? users imported so far?) via the hub's
+  `acuity_migration_checklist()`, plus the Run button (disabled until the
+  connection is up). Settings (batch size) unchanged.
+
 ### Migration Centre export helper (2026-07-20)
 - Declares its `export_tables` (`wp_users`, `wp_usermeta`) via
   `hook_acuity_wpmc_group_info()`, so the dashboard's new "Database export
