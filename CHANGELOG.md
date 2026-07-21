@@ -6,6 +6,11 @@ this changelog is the running version tally. On release, the top heading's
 
 ## 1.x-1.0.0-alpha1 (unreleased)
 
+### Migration Centre export helper (2026-07-20)
+- Declares its `export_tables` (`wp_users`, `wp_usermeta`) via
+  `hook_acuity_wpmc_group_info()`, so the dashboard's new "Database export
+  helper" includes them in the list of WordPress tables to export.
+
 ### Menu (2026-07-20)
 - Moved to the renamed Migration Centre root: the User Importer is now at
   `admin/config/acuity-wpmc/users` (was `admin/config/acuity/wpmc/users`), with

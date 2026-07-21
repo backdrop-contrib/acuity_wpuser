@@ -51,6 +51,9 @@ function acuity_wpuser_acuity_wpmc_group_info() {
       'title' => t('User Migration & Auth'),
       'description' => t('Import users, map profiles, and manage password hashing strategies.'),
       'url' => 'admin/config/acuity-wpmc/users',
+      // Tables the user import reads. Hardcoded wp_ prefix (this module is not
+      // prefix-aware; see its CLAUDE.md Gotchas).
+      'export_tables' => array('wp_users', 'wp_usermeta'),
     ),
   );
 }
