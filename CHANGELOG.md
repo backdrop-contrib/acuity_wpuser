@@ -4,7 +4,7 @@ Dev convention: the `.info` carries no `version` (the release packager adds it);
 this changelog is the running version tally. On release, the top heading's
 `(unreleased)` becomes the release date.
 
-## 1.x-1.0.0-alpha1 (unreleased)
+## 1.x-1.0.0-beta2 (2026-07-22)
 
 ### Acuity Migration Centre: relocated + Overview tab (2026-07-21)
 - Now a card in the Migration Centre's **WordPress** section. Registration hook
