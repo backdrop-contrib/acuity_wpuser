@@ -69,11 +69,11 @@ Add the WordPress database configuration to your settings.php file (see Document
 
 ## Logging in after migration
 
-**Migrated users log in with their existing WordPress password — no extra module is required.**
+**Migrated users log in with their existing WordPress password.**
 
-- At import, each user's WordPress password hash (```$P$```… or the phpBB ```$H$```… variant) is copied verbatim into Backdrop's `users` table.
-- The first time a migrated user logs in, **Backdrop core itself** verifies that legacy hash and, on success, transparently re-saves the password as a modern, more secure Backdrop hash (```$S$```…, SHA-512). The user notices nothing — they simply use their old password, and it is upgraded in place.
-- This is built into Backdrop core (`user_check_password()` / `user_authenticate()`), which natively understands WordPress and phpBB password hashes. **No companion authentication module is needed** for migrated users to log in.
+- At import, each user's WordPress password hash is copied verbatim into Backdrop's `users` table.
+- Older WordPress hashes (```$P$```…, or the phpBB ```$H$```… variant) are verified by **Backdrop core itself** at the user's first login, which then re-saves the password as a Backdrop hash (```$S$```…). The user notices nothing.
+- **WordPress 6.8 and later** store passwords as bcrypt (```$wp$2y$```…), which Backdrop core does not understand. This module checks those at login the way WordPress does and, when the password is right, re-saves it as a Backdrop hash; core then logs the user in as normal. Flood control applies as usual. **Keep this module enabled until no accounts have such a password** (the Overview tab shows how many are left); a user still on one cannot log in without it, only reset their password.
 
 Safeguards:
 

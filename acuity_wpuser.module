@@ -112,6 +112,20 @@ function acuity_wpuser_overview_form($form, &$form_state) {
     '#markup' => t('Batch Size: @size users per step.', array('@size' => $batch_size)),
   );
 
+  // Members still on a WordPress 6.8+ password can only log in while this
+  // module is enabled, so this is the number to watch before uninstalling.
+  $wp_bcrypt = db_query("SELECT COUNT(*) FROM {users} WHERE pass LIKE :wp OR pass LIKE :plain", array(
+    ':wp' => db_like('$wp$2') . '%',
+    ':plain' => db_like('$2y$') . '%',
+  ))->fetchField();
+  $form['wp_passwords'] = array(
+    '#type' => 'item',
+    '#title' => t('WordPress 6.8+ passwords'),
+    '#markup' => format_plural($wp_bcrypt,
+      '1 account still has a WordPress 6.8+ password. It is converted at its first login, which needs this module enabled.',
+      '@count accounts still have a WordPress 6.8+ password. Each is converted at its first login, which needs this module enabled.'),
+  );
+
   $form['actions']['#type'] = 'actions';
   $form['actions']['run'] = array(
     '#type' => 'submit',
@@ -380,4 +394,135 @@ function acuity_wpuser_field_access($op, $field, $entity_type, $entity, $account
   }
 
   return TRUE;
+}
+/**
+ * Implements hook_form_FORM_ID_alter() for user_login().
+ */
+function acuity_wpuser_form_user_login_alter(&$form, &$form_state) {
+  _acuity_wpuser_add_login_validator($form);
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for user_login_block().
+ */
+function acuity_wpuser_form_user_login_block_alter(&$form, &$form_state) {
+  _acuity_wpuser_add_login_validator($form);
+}
+
+/**
+ * Adds the WordPress password check just before core checks the password.
+ *
+ * @param array $form
+ *   A login form.
+ */
+function _acuity_wpuser_add_login_validator(array &$form) {
+  if (empty($form['#validate'])) {
+    return;
+  }
+  $position = array_search('user_login_authenticate_validate', $form['#validate']);
+  if ($position === FALSE) {
+    return;
+  }
+  array_splice($form['#validate'], $position, 0, array('acuity_wpuser_login_validate'));
+}
+
+/**
+ * Login validator: upgrades a WordPress 6.8+ password hash on a correct login.
+ *
+ * Backdrop core verifies the older WordPress phpass hashes ($P$, $H$) itself,
+ * but not the bcrypt format WordPress 6.8 introduced ($wp$2y$...), so members
+ * whose imported password has that format are refused with the right password.
+ * When the password matches WordPress's own check, the hash is replaced with a
+ * Backdrop one and core's own validator then logs the member in. A wrong
+ * password is left for core to refuse and count against flood control.
+ */
+function acuity_wpuser_login_validate($form, &$form_state) {
+  $name = trim($form_state['values']['name']);
+  $password = trim($form_state['values']['pass']);
+  if (!strlen($name) || !strlen($password)) {
+    return;
+  }
+
+  // Find the account the way core will.
+  $account = FALSE;
+  $credentials = config_get('system.core', 'user_login_method');
+  if (($credentials === USER_LOGIN_USERNAME_OR_EMAIL || $credentials === USER_LOGIN_EMAIL_ONLY) && valid_email_address($name)) {
+    $account = db_query("SELECT uid, pass FROM {users} WHERE mail = :mail AND status = 1", array(':mail' => $name))->fetchObject();
+  }
+  if (!$account && $credentials !== USER_LOGIN_EMAIL_ONLY) {
+    $account = db_query("SELECT uid, pass FROM {users} WHERE name = :name AND status = 1", array(':name' => $name))->fetchObject();
+  }
+  if (!$account || !acuity_wpuser_is_wp_bcrypt_hash($account->pass)) {
+    return;
+  }
+
+  // Never test a password where core would refuse to: flood control applies
+  // to this check exactly as it does to core's.
+  $flood_config = config('user.flood');
+  if (!flood_is_allowed('failed_login_attempt_ip', $flood_config->get('flood_ip_limit'), $flood_config->get('flood_ip_window'))) {
+    return;
+  }
+  $identifier = $flood_config->get('flood_uid_only') ? $account->uid : $account->uid . '-' . ip_address();
+  if (!flood_is_allowed('failed_login_attempt_user', $flood_config->get('flood_user_limit'), $flood_config->get('flood_user_window'), $identifier)) {
+    return;
+  }
+
+  // WordPress 6.8+ hashed the password untrimmed; core trims it. Try both, and
+  // store the trimmed one, which is what core checks next and at every login.
+  $raw = (string) $form_state['values']['pass'];
+  if (acuity_wpuser_check_wp_bcrypt_password($raw, $account->pass) || ($raw !== $password && acuity_wpuser_check_wp_bcrypt_password($password, $account->pass))) {
+    require_once BACKDROP_ROOT . '/' . settings_get('password_inc', 'core/includes/password.inc');
+    $hash = user_hash_password($password);
+    if ($hash) {
+      db_update('users')
+        ->fields(array('pass' => $hash))
+        ->condition('uid', $account->uid)
+        ->execute();
+      entity_get_controller('user')->resetCache(array($account->uid));
+      watchdog('acuity_wpuser', 'WordPress password upgraded to a Backdrop hash for user %uid.', array('%uid' => $account->uid));
+    }
+  }
+}
+
+/**
+ * Whether a stored hash is one of WordPress's bcrypt formats.
+ *
+ * @param string $hash
+ *   The value of users.pass.
+ *
+ * @return bool
+ *   TRUE for $wp$2y$... (WordPress 6.8+) or a plain $2y$ bcrypt hash.
+ */
+function acuity_wpuser_is_wp_bcrypt_hash($hash) {
+  return strpos($hash, '$wp$2') === 0 || strpos($hash, '$2y$') === 0;
+}
+
+/**
+ * Checks a password against a WordPress bcrypt hash, as wp_check_password().
+ *
+ * WordPress 6.8+ pre-hashes the password with HMAC-SHA384 (key "wp-sha384"),
+ * base64-encodes it, bcrypts that, and prefixes "$wp". Plain "$2y$" hashes
+ * (from plugins) are bcrypt of the password itself.
+ *
+ * @param string $password
+ *   The password as typed.
+ * @param string $hash
+ *   The stored hash.
+ *
+ * @return bool
+ *   TRUE if the password matches.
+ */
+function acuity_wpuser_check_wp_bcrypt_password($password, $hash) {
+  // As WordPress: longer passwords are not supported.
+  if (strlen($password) > 4096) {
+    return FALSE;
+  }
+  if (strpos($hash, '$wp$2') === 0) {
+    $prehashed = base64_encode(hash_hmac('sha384', $password, 'wp-sha384', TRUE));
+    return password_verify($prehashed, substr($hash, 3));
+  }
+  if (strpos($hash, '$2y$') === 0) {
+    return password_verify($password, $hash);
+  }
+  return FALSE;
 }

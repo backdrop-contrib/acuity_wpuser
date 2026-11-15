@@ -4,6 +4,14 @@ Dev convention: the `.info` carries no `version` (the release packager adds it);
 this changelog is the running version tally. On release, the top heading's
 `(unreleased)` becomes the release date.
 
+## 1.x-1.0.0-beta3 (2026-11-15)
+
+Git tag: `1.x-1.0.0-beta3`.
+
+### Added
+- Login with WordPress 6.8+ passwords. WordPress 6.8 stores passwords as bcrypt (`$wp$2y$...`), which Backdrop core cannot verify, so imported users with such a password were refused with the right one. A login validator now checks them as WordPress does and re-saves the password as a Backdrop hash; core then logs the user in. Plain `$2y$` bcrypt hashes are handled too. Flood control applies as usual.
+- Overview: the number of accounts still holding a WordPress 6.8+ password. Keep the module enabled until it reaches 0.
+
 ## 1.x-1.0.0-beta2 (2026-07-22)
 
 ### Acuity Migration Centre: relocated + Overview tab (2026-07-21)
